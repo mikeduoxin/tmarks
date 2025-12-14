@@ -133,21 +133,22 @@ export const onRequestGet: PagesFunction<Env, RouteParams, AuthContext>[] = [
         params = conditionParams
       }
 
-      // 排序（置顶书签按 pin_order 排序）
+      // 排序（置顶书签按 pin_order 排序，如果字段存在的话）
+      // 使用 COALESCE 确保在 pin_order 字段不存在时也能正常工作
       let orderBy = ''
       switch (sortBy) {
         case 'updated':
-          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN b.pin_order ELSE NULL END ASC, b.updated_at DESC, b.id DESC'
+          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN COALESCE(b.pin_order, 0) ELSE NULL END ASC, b.updated_at DESC, b.id DESC'
           break
         case 'pinned':
-          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN b.pin_order ELSE NULL END ASC, b.created_at DESC, b.id DESC'
+          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN COALESCE(b.pin_order, 0) ELSE NULL END ASC, b.created_at DESC, b.id DESC'
           break
         case 'popular':
-          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN b.pin_order ELSE NULL END ASC, b.click_count DESC, b.last_clicked_at DESC, b.id DESC'
+          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN COALESCE(b.pin_order, 0) ELSE NULL END ASC, b.click_count DESC, b.last_clicked_at DESC, b.id DESC'
           break
         case 'created':
         default:
-          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN b.pin_order ELSE NULL END ASC, b.created_at DESC, b.id DESC'
+          orderBy = 'ORDER BY b.is_pinned DESC, CASE WHEN b.is_pinned = 1 THEN COALESCE(b.pin_order, 0) ELSE NULL END ASC, b.created_at DESC, b.id DESC'
           break
       }
 
