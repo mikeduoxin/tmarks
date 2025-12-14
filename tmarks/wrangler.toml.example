@@ -1,5 +1,5 @@
 name = "tmarks"
-compatibility_date = "2024-03-18"
+compatibility_date = "2025-12-14"
 pages_build_output_dir = ".deploy"
 
 # ⚠️ 重要说明：
@@ -37,4 +37,5 @@ JWT_REFRESH_TOKEN_EXPIRES_IN = "365d"
 #
 # 示例（仅供参考，请不要在仓库中提交真实密钥）：
 # JWT_SECRET = "your-long-random-jwt-secret-at-least-48-characters"
+
 # ENCRYPTION_KEY = "your-long-random-encryption-key-at-least-48-characters"
