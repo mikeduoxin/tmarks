@@ -17,6 +17,7 @@ pages_build_output_dir = ".deploy"
 # 3. 更安全，更灵活
 
 [vars]
+DB = "tmarks-prod-db"
 ALLOW_REGISTRATION = "true"
 ENVIRONMENT = "production"
 JWT_ACCESS_TOKEN_EXPIRES_IN = "365d"
