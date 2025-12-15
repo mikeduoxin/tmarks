@@ -188,10 +188,13 @@ pnpm dev
 > 本地 / 自托管部署时，可参考 `tmarks/wrangler.toml.example` 中的 `[vars]` 示例，业务配置可直接照抄，敏感密钥仅在 Dashboard 中填写真实值。
 
 #### 5. 初始化数据库
+
 1. 打开 **Workers & Pages → D1 SQL Database**
 2. 进入 `tmarks-prod-db` → **Console**
-3. 打开仓库中的 `tmarks/migrations/d1_console_pure.sql`
-4. 复制全部 SQL，粘贴到控制台，点击 **Execute** 执行
+3. **执行基础 Schema**：打开 `tmarks/migrations/0001_d1_console.sql`，复制全部内容到控制台执行
+4. **执行扩展 Schema**：打开 `tmarks/migrations/0100_d1_console.sql`，复制全部内容到控制台执行
+
+> ⚠️ **注意**：D1 控制台不支持注释，请确保复制的是 `*_d1_console.sql` 文件（单行格式），而不是 `*_schema.sql` 文件。
 
 #### 6. 重新部署
 1. 回到 Pages 项目 → 部署
