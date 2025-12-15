@@ -61,15 +61,30 @@ export function RegisterPage() {
     } catch (err) {
       if (err instanceof ApiError) {
         // 根据错误状态码提供更友好的提示
-        if (err.status === 409) {
+        if (err.status === 0 || err.code === 'SERVER_NOT_RUNNING') {
+          // 网络错误或服务器未运行
+          setError('无法连接到服务器。请确保后端服务器正在运行（运行 pnpm cf:dev）')
+        } else if (err.status === 400) {
+          // 400 错误通常是验证错误或注册被禁用
+          if (err.message.includes('disabled')) {
+            setError('注册功能当前已禁用')
+          } else {
+            setError(err.message || '输入信息有误，请检查后重试')
+          }
+        } else if (err.status === 409) {
           setError('用户名或邮箱已被注册')
         } else if (err.status === 500) {
-          setError('服务器错误,但您的账号可能已创建成功,请尝试登录')
+          // 500 错误可能是数据库问题
+          if (err.message.includes('migration') || err.message.includes('schema') || err.message.includes('table')) {
+            setError('数据库配置错误，请联系管理员')
+          } else {
+            setError(err.message || '服务器错误，请稍后重试')
+          }
         } else {
-          setError(err.message)
+          setError(err.message || '注册失败，请稍后重试')
         }
       } else {
-        setError('注册失败,请稍后重试')
+        setError('注册失败，请稍后重试')
       }
       console.error('注册错误:', err)
     }

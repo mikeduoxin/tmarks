@@ -12,15 +12,22 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "type-check": "tsc --noEmit",
-    "cf:dev": "wrangler dev",
+    "cf:dev": "node scripts/ensure-db-migrated.js && pnpm build:deploy && wrangler pages dev .deploy --local --persist-to .wrangler/state --port 8787 --d1 DB=tmarks-prod-db",
+    "cf:dev:no-proxy": "pwsh -Command \"$env:HTTP_PROXY=''; $env:HTTPS_PROXY=''; $env:http_proxy=''; $env:https_proxy=''; node scripts/ensure-db-migrated.js; pnpm build:deploy; wrangler pages dev .deploy --local --persist-to .wrangler/state --port 8787 --d1 DB=tmarks-prod-db\"",
     "cf:deploy": "wrangler deploy",
     "cf:tail": "wrangler tail",
     "db:migrate": "wrangler d1 migrations apply tmarks-prod-db",
-    "db:migrate:local": "wrangler d1 migrations apply tmarks-prod-db --local",
+    "db:migrate:local": "node scripts/migrate-pages-db.js",
+    "db:migrate:local:no-proxy": "pwsh -Command \"$env:HTTP_PROXY=''; $env:HTTPS_PROXY=''; $env:http_proxy=''; $env:https_proxy=''; node scripts/migrate-pages-db.js\"",
+    "db:reset:local": "pwsh scripts/reset-local-db.ps1",
     "db:auto-migrate": "node scripts/auto-migrate.js",
     "db:auto-migrate:local": "node scripts/auto-migrate.js --local",
     "db:check": "node scripts/check-db-schema.js",
     "db:check:local": "node scripts/check-db-schema.js --local",
+    "db:test": "node scripts/test-db-connection.js",
+    "api:test": "node scripts/test-api-endpoint.js",
+    "check:d1": "node scripts/test-d1-binding.js",
+    "db:diagnose": "node scripts/diagnose-db-issue.js",
     "deploy": "pwsh scripts/deploy.ps1",
     "prepare": "husky"
   },
@@ -82,5 +89,6 @@
     "*.{css,md}": [
       "prettier --write"
     ]
-  }
+  },
+  "packageManager": "pnpm@10.25.0+sha512.5e82639027af37cf832061bcc6d639c219634488e0f2baebe785028a793de7b525ffcd3f7ff574f5e9860654e098fe852ba8ac5dd5cefe1767d23a020a92f501"
 }

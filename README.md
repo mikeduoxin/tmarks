@@ -54,13 +54,49 @@ cd tmarks
 cd tmarks
 pnpm install
 
-# 3. 创建数据库并迁移
-wrangler d1 create tmarks-prod-db --local
+# 3. 初始化本地数据库（运行迁移时会自动创建）
+# 如果遇到代理错误，使用：
+pnpm db:migrate:local:no-proxy
+# 或者正常使用（如果代理已修复）：
 pnpm db:migrate:local
 
+# 如果遇到 "duplicate column name" 错误，说明数据库已部分迁移
+# 解决方法：删除本地数据库重新迁移
+# Windows PowerShell:
+# Remove-Item -Recurse -Force .wrangler\state\v3\d1
+# 然后重新运行迁移命令
+
 # 4. 启动开发服务器
+# 需要同时运行两个终端：
+
+# 终端 1: 启动后端 API 服务器（Wrangler Pages）
+# 注意：首次运行会自动构建前端，后续修改前端代码需要重新构建
+pnpm cf:dev
+# 后端服务器将运行在 http://localhost:8787
+
+# 如果遇到代理错误（Invalid URL: 127.0.0.1:10808），可以使用以下方法：
+# 方法 1: 临时禁用代理运行（推荐）
+pnpm cf:dev:no-proxy
+
+# 方法 2: 修复代理环境变量格式（永久解决）
+# 在 PowerShell 中运行：
+# $env:HTTP_PROXY = "http://127.0.0.1:10808"
+# $env:HTTPS_PROXY = "http://127.0.0.1:10808"
+# 或者运行修复脚本：
+# pwsh scripts/start-dev.ps1
+
+# 终端 2: 启动前端开发服务器（Vite）
 pnpm dev
-# 访问 http://localhost:5173
+# 前端服务器将运行在 http://localhost:5173
+# ⚠️ 重要：请访问 http://localhost:5173 来使用应用
+# 不要直接访问后端服务器地址（http://localhost:8787 或 http://127.0.0.1:8788）
+# 前端通过 Vite 代理自动将 /api 请求转发到后端服务器
+
+# 如果遇到 "数据库配置错误" 或 "Database table not found" 错误：
+# 1. 确保已运行数据库迁移：pnpm db:migrate:local:no-proxy
+# 2. 检查数据库配置：pnpm check:d1
+# 3. 重启后端服务器（停止后重新运行 pnpm cf:dev:no-proxy）
+# 4. 查看后端服务器日志中的详细错误信息
 ```
 
 ### 浏览器扩展开发

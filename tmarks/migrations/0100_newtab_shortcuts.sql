@@ -123,10 +123,10 @@ CREATE INDEX IF NOT EXISTS idx_newtab_grid_items_group ON newtab_grid_items(grou
 -- 置顶书签排序支持
 -- ============================================================================
 
--- 为 bookmarks 表添加置顶排序字段
-ALTER TABLE bookmarks ADD COLUMN pin_order INTEGER NOT NULL DEFAULT 0;
+-- 注意：pin_order 列已在 0100_d1_console.sql 中添加
+-- 这里只需要创建索引（如果尚未创建）
 
--- 创建置顶书签排序索引
+-- 创建置顶书签排序索引（使用 IF NOT EXISTS 确保安全）
 CREATE INDEX IF NOT EXISTS idx_bookmarks_pin_order ON bookmarks(user_id, is_pinned, pin_order);
 
 -- 记录迁移版本

@@ -43,3 +43,6 @@ build
 # Database migration history (local only)
 .migration-history.json
 .migration-history-prod.json
+
+# Wrangler config (use wrangler.toml.example as template)
+wrangler.toml

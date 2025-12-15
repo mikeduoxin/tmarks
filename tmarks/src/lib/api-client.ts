@@ -141,7 +141,15 @@ class HttpClient {
         if (!text || text.trim() === '') {
           // 空响应体
           if (!response.ok) {
-            throw new ApiError('EMPTY_RESPONSE', 'Server returned empty response', response.status)
+            // 提供更详细的错误信息
+            const errorMessage = response.status === 0 
+              ? '无法连接到服务器。请检查后端服务器是否正在运行（运行 pnpm cf:dev:no-proxy）'
+              : response.status === 404
+              ? `API 端点未找到: ${url}。请检查 API 路由配置。`
+              : response.status >= 500
+              ? `服务器错误 (${response.status})。请检查后端服务器日志。`
+              : `服务器返回空响应 (${response.status})`
+            throw new ApiError('EMPTY_RESPONSE', errorMessage, response.status)
           }
           return { data: undefined as T }
         }
@@ -171,9 +179,20 @@ class HttpClient {
       }
 
       // 网络错误或其他错误
+      const errorMessage = error instanceof Error ? error.message : 'Network request failed'
+      
+      // 检查是否是连接被拒绝（后端服务器未运行）
+      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('Failed to fetch')) {
+        throw new ApiError(
+          'SERVER_NOT_RUNNING',
+          '无法连接到后端服务器。请确保已启动 Wrangler 开发服务器（运行 pnpm cf:dev）',
+          0
+        )
+      }
+      
       throw new ApiError(
         'NETWORK_ERROR',
-        error instanceof Error ? error.message : 'Network request failed',
+        errorMessage,
         0
       )
     }

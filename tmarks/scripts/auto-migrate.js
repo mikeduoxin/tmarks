@@ -101,8 +101,18 @@ function executeMigration(filename, isLocal = false) {
     log(`  ✅ 成功: ${filename}`, 'green')
     return true
   } catch (error) {
+    const errorMessage = error.message || error.toString()
+    
+    // 检查是否是重复列错误（可以安全忽略）
+    if (errorMessage.includes('duplicate column name') || 
+        errorMessage.includes('duplicate column')) {
+      log(`  ⚠️  警告: ${filename} - 列已存在，跳过`, 'yellow')
+      log(`     ${errorMessage}`, 'gray')
+      return true  // 返回 true，因为这不是致命错误
+    }
+    
     log(`  ❌ 失败: ${filename}`, 'red')
-    log(`     ${error.message}`, 'red')
+    log(`     ${errorMessage}`, 'red')
     return false
   }
 }
