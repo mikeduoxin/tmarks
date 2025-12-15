@@ -252,7 +252,7 @@ async function getExistingUrls(db: D1Database, userId: string): Promise<Set<stri
 }
 
 /**
- * 分批处理书签
+ * 分批处理书签（优化版本 - 使用批量操作减少数据库查询）
  */
 async function processBatch(
   db: D1Database,
@@ -262,34 +262,113 @@ async function processBatch(
   result: ImportResult,
   options: ImportOptions
 ) {
+  if (bookmarks.length === 0) return
+
+  const now = new Date().toISOString()
+  const bookmarkIds: string[] = []
+  const bookmarkTagMap = new Map<string, string[]>() // bookmarkId -> tagNames
+  const uncategorizedBookmarkIds: string[] = [] // 需要添加"未分类"标签的书签ID
+
+  // 1. 批量查询所有书签URL的现有状态（分块处理以避免 SQLite 参数限制）
+  const urls = bookmarks.map(b => b.url)
+  const existingBookmarkMap = new Map<string, { id: string; deleted_at: string | null }>()
+  
+  // SQLite 默认支持最多 999 个参数，我们使用 500 作为安全限制
+  const MAX_URLS_PER_QUERY = 500
+  for (let i = 0; i < urls.length; i += MAX_URLS_PER_QUERY) {
+    const urlChunk = urls.slice(i, i + MAX_URLS_PER_QUERY)
+    const placeholders = urlChunk.map(() => '?').join(',')
+    const { results: existingBookmarks } = await db
+      .prepare(`SELECT id, url, deleted_at FROM bookmarks WHERE user_id = ? AND url IN (${placeholders})`)
+      .bind(userId, ...urlChunk)
+      .all<{ id: string; url: string; deleted_at: string | null }>()
+
+    for (const existing of existingBookmarks || []) {
+      existingBookmarkMap.set(existing.url, { id: existing.id, deleted_at: existing.deleted_at })
+    }
+  }
+
+  // 2. 准备批量插入和更新的语句
+  const insertStatements: D1PreparedStatement[] = []
+  const updateStatements: D1PreparedStatement[] = []
+  const processedBookmarks: Array<{ bookmark: ParsedBookmark; bookmarkId: string; index: number }> = []
+
   for (let i = 0; i < bookmarks.length; i++) {
     const bookmark = bookmarks[i]
 
     try {
-      // 检查重复（这里的检查可能不够准确，让createBookmark函数处理）
-      // if (options.skip_duplicates && existingUrls.has(bookmark.url)) {
-      //   result.skipped++
-      //   continue
-      // }
+      const existing = existingBookmarkMap.get(bookmark.url)
 
-      // 创建书签
-      const bookmarkId = await createBookmark(db, userId, bookmark, options)
-
-      if (bookmarkId) {
-        result.created_bookmarks.push(bookmarkId)
-
-        // 关联标签 - 如果没有标签,自动添加"未分类"标签
-        if (bookmark.tags.length > 0) {
-          await associateBookmarkTags(db, userId, bookmarkId, bookmark.tags)
-        } else {
-          // 无标签书签自动添加"未分类"标签
-          await ensureUncategorizedTag(db, userId, bookmarkId)
+      if (existing) {
+        if (!existing.deleted_at) {
+          // URL已存在且未删除
+          if (options.skip_duplicates) {
+            result.skipped++
+            continue
+          } else {
+            throw new Error(`Bookmark with URL already exists: ${bookmark.url}`)
+          }
         }
 
-        result.success++
+        // 恢复已删除的书签
+        const createdAt = options.preserve_timestamps && bookmark.created_at
+          ? bookmark.created_at
+          : now
+
+        updateStatements.push(
+          db.prepare(`
+            UPDATE bookmarks
+            SET title = ?, description = ?, cover_image = ?,
+                is_archived = 0,
+                deleted_at = NULL, updated_at = ?
+            WHERE id = ?
+          `).bind(
+            bookmark.title,
+            bookmark.description || null,
+            bookmark.cover_image || null,
+            now,
+            existing.id
+          )
+        )
+
+        processedBookmarks.push({ bookmark, bookmarkId: existing.id, index: i })
+        bookmarkIds.push(existing.id)
       } else {
-        // bookmarkId为null表示跳过（重复等）
-        result.skipped++
+        // 创建新书签
+        const bookmarkId = crypto.randomUUID()
+        const createdAt = options.preserve_timestamps && bookmark.created_at
+          ? bookmark.created_at
+          : now
+
+        insertStatements.push(
+          db.prepare(`
+            INSERT INTO bookmarks (
+              id, user_id, title, url, description, cover_image,
+              is_pinned, is_archived, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            bookmarkId,
+            userId,
+            bookmark.title,
+            bookmark.url,
+            bookmark.description || null,
+            bookmark.cover_image || null,
+            false, // 导入的书签默认不置顶
+            false, // 导入的书签默认不归档
+            createdAt,
+            now
+          )
+        )
+
+        processedBookmarks.push({ bookmark, bookmarkId, index: i })
+        bookmarkIds.push(bookmarkId)
+      }
+
+      // 记录标签关联信息
+      if (bookmark.tags.length > 0) {
+        bookmarkTagMap.set(processedBookmarks[processedBookmarks.length - 1].bookmarkId, bookmark.tags)
+      } else {
+        uncategorizedBookmarkIds.push(processedBookmarks[processedBookmarks.length - 1].bookmarkId)
       }
 
     } catch (error) {
@@ -302,6 +381,96 @@ async function processBatch(
       })
     }
   }
+
+  // 3. 批量执行插入和更新
+  try {
+    if (insertStatements.length > 0) {
+      await db.batch(insertStatements)
+    }
+    if (updateStatements.length > 0) {
+      await db.batch(updateStatements)
+    }
+  } catch (error) {
+    // 如果批量操作失败，记录所有书签为失败
+    for (const { index, bookmark } of processedBookmarks) {
+      result.failed++
+      result.errors.push({
+        index,
+        item: bookmark,
+        error: error instanceof Error ? error.message : 'Batch operation failed',
+        code: 'BOOKMARK_CREATION_FAILED'
+      })
+    }
+    return
+  }
+
+  // 4. 批量关联标签
+  const { createOrLinkTags } = await import('../../lib/tags')
+  
+  // 获取或创建"未分类"标签
+  let uncategorizedTagId: string | null = null
+  if (uncategorizedBookmarkIds.length > 0) {
+    const UNCATEGORIZED_TAG_NAME = '未分类'
+    let uncategorizedTag = await db.prepare(
+      'SELECT id FROM tags WHERE user_id = ? AND name = ? AND deleted_at IS NULL'
+    ).bind(userId, UNCATEGORIZED_TAG_NAME).first<{ id: string }>()
+
+    if (!uncategorizedTag) {
+      uncategorizedTagId = crypto.randomUUID()
+      await db.prepare(
+        `INSERT INTO tags (id, user_id, name, color, created_at, updated_at)
+         VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))`
+      ).bind(uncategorizedTagId, userId, UNCATEGORIZED_TAG_NAME, '#9ca3af').run()
+    } else {
+      uncategorizedTagId = uncategorizedTag.id
+    }
+  }
+
+  // 批量关联标签（使用 Promise.all 并行处理，但限制并发数）
+  const tagLinkPromises: Promise<void>[] = []
+  const maxConcurrent = Math.min(options.max_concurrent || 5, bookmarkTagMap.size)
+  
+  for (const [bookmarkId, tagNames] of bookmarkTagMap.entries()) {
+    tagLinkPromises.push(
+      createOrLinkTags(db, bookmarkId, tagNames, userId).catch(error => {
+        console.error(`Failed to associate tags for bookmark ${bookmarkId}:`, error)
+        // 不抛出错误，允许继续处理其他书签
+      })
+    )
+  }
+
+  // 批量关联"未分类"标签
+  if (uncategorizedTagId && uncategorizedBookmarkIds.length > 0) {
+    const uncategorizedLinkStatements = uncategorizedBookmarkIds.map(bookmarkId =>
+      db.prepare(
+        `INSERT OR IGNORE INTO bookmark_tags (bookmark_id, tag_id, user_id, created_at)
+         VALUES (?, ?, ?, datetime('now'))`
+      ).bind(bookmarkId, uncategorizedTagId, userId)
+    )
+    
+    if (uncategorizedLinkStatements.length > 0) {
+      tagLinkPromises.push(
+        db.batch(uncategorizedLinkStatements).then(() => {}).catch(error => {
+          console.error('Failed to link uncategorized tags:', error)
+        })
+      )
+    }
+  }
+
+  // 限制并发执行标签关联
+  if (tagLinkPromises.length > 0) {
+    const chunks = []
+    for (let i = 0; i < tagLinkPromises.length; i += maxConcurrent) {
+      chunks.push(tagLinkPromises.slice(i, i + maxConcurrent))
+    }
+    for (const chunk of chunks) {
+      await Promise.all(chunk)
+    }
+  }
+
+  // 5. 更新结果
+  result.created_bookmarks.push(...bookmarkIds)
+  result.success += processedBookmarks.length
 }
 
 /**
